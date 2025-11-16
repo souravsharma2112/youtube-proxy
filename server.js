@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const ytDlp = require('yt-dlp-exec');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = 5000;
@@ -8,6 +10,9 @@ const PORT = 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Path to cookies.txt (sibling of server.js)
+const cookiesPath = path.join(__dirname, 'cookies.txt');
 
 // Function to extract YouTube video ID
 function extractVideoId(url) {
@@ -21,47 +26,29 @@ app.get('/api/video', async (req, res) => {
   try {
     const { url } = req.query;
 
-    console.log('Received request for URL:', url);
-
-    if (!url) {
-      return res.status(400).json({
-        success: false,
-        error: 'YouTube URL is required'
-      });
-    }
+    if (!url) return res.status(400).json({ success: false, error: 'YouTube URL is required' });
 
     const videoId = extractVideoId(url);
-    
-    if (!videoId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid YouTube URL'
-      });
-    }
+    if (!videoId) return res.status(400).json({ success: false, error: 'Invalid YouTube URL' });
 
-    console.log('Extracted video ID:', videoId);
-
-    // Get video info using yt-dlp-exec
-    const result = await ytDlp(url, {
+    // yt-dlp options
+    const options = {
       dumpJson: true,
       noCheckCertificates: true,
       noWarnings: true,
       preferFreeFormats: true,
       format: 'best[ext=mp4]/best[ext=webm]/best',
-      youtubeSkipDashManifest: true,
-    });
+    };
 
-    console.log('Video title:', result.title);
-    console.log('Direct URL available:', !!result.url);
-
-    if (!result.url) {
-      return res.status(404).json({
-        success: false,
-        error: 'Could not extract direct video URL'
-      });
+    // If cookies.txt exists, add it for private/age-restricted videos
+    if (fs.existsSync(cookiesPath)) {
+      options.cookies = cookiesPath;
     }
 
-    // Return the response in exact format you want
+    const result = await ytDlp(url, options);
+
+    if (!result.url) return res.status(404).json({ success: false, error: 'Could not extract direct video URL' });
+
     res.json({
       success: true,
       title: result.title,
@@ -74,33 +61,19 @@ app.get('/api/video', async (req, res) => {
 
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch video: ' + error.message
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch video: ' + error.message });
   }
 });
 
-// Alternative endpoint with multiple quality options
+// API endpoint with quality option
 app.get('/api/video/quality', async (req, res) => {
   try {
     const { url, quality = '720p' } = req.query;
 
-    if (!url) {
-      return res.status(400).json({
-        success: false,
-        error: 'YouTube URL is required'
-      });
-    }
+    if (!url) return res.status(400).json({ success: false, error: 'YouTube URL is required' });
 
     const videoId = extractVideoId(url);
-    
-    if (!videoId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid YouTube URL'
-      });
-    }
+    if (!videoId) return res.status(400).json({ success: false, error: 'Invalid YouTube URL' });
 
     let format;
     switch (quality) {
@@ -113,12 +86,18 @@ app.get('/api/video/quality', async (req, res) => {
       default: format = 'best[height<=720]';
     }
 
-    const result = await ytDlp(url, {
+    const options = {
       dumpJson: true,
       noCheckCertificates: true,
       noWarnings: true,
       format: format,
-    });
+    };
+
+    if (fs.existsSync(cookiesPath)) {
+      options.cookies = cookiesPath;
+    }
+
+    const result = await ytDlp(url, options);
 
     res.json({
       success: true,
@@ -131,19 +110,13 @@ app.get('/api/video/quality', async (req, res) => {
 
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch video'
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch video' });
   }
 });
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'Server is running',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {
